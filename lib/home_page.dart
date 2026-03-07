@@ -4,10 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:http/http.dart' as http;
-import 'package:csv/csv.dart' as csvlib;
 import 'constants.dart';
 import 'clients_page.dart';
 import 'transactions_page.dart';
+import 'scan_results_sheet.dart';
 import 'web_download.dart';
 
 class HomePage extends StatefulWidget {
@@ -20,7 +20,7 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   bool _isLoading = false;
   bool _isTransactionInProgress = false;
-  List<List<dynamic>> _csvData = [];
+  List<Map<String, dynamic>> _scanResults = [];
 
   void _scanDocument() {
     showModalBottomSheet(
@@ -114,7 +114,7 @@ class _HomePageState extends State<HomePage> {
     if (pickedFile != null) {
       setState(() {
         _isLoading = true;
-        _csvData = [];
+        _scanResults = [];
       });
 
       final bytes = await pickedFile.readAsBytes();
@@ -131,7 +131,6 @@ class _HomePageState extends State<HomePage> {
 
       request.headers.addAll({
         'Idempotency-Key': 'request-${DateTime.now().millisecondsSinceEpoch}',
-        'accept': 'text/csv',
       });
 
       request.files.add(
@@ -142,7 +141,12 @@ class _HomePageState extends State<HomePage> {
 
       if (response.statusCode == 200) {
         final respStr = await response.stream.bytesToString();
-        _parseCSV(respStr);
+        final List<dynamic> data = json.decode(respStr);
+        if (mounted) {
+          setState(() {
+            _scanResults = parseScanResponse(data);
+          });
+        }
       } else {
         _showError('Failed to process document. Status code: ${response.statusCode}');
       }
@@ -157,17 +161,17 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  void _parseCSV(String csvString) {
-    try {
-      List<List<dynamic>> rowsAsListOfValues = csvlib.csv.decode(csvString);
-      if (mounted) {
-        setState(() {
-          _csvData = rowsAsListOfValues;
-        });
-      }
-    } catch (e) {
-      _showError('Error parsing CSV data: $e');
+  void _openEditableResults() async {
+    if (_scanResults.isEmpty) return;
+    final edited = await showEditableScanResults(context, _scanResults);
+    if (edited != null && mounted) {
+      setState(() => _scanResults = edited);
+      _showError('Changes saved locally');
     }
+  }
+
+  Future<void> _downloadResults() async {
+    await downloadScanResults(_scanResults, _showError);
   }
 
   void _showError(String message) {
@@ -392,102 +396,7 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  void _showCSVResultBottomSheet() {
-    if (_csvData.isEmpty) return;
 
-    int maxCols = _csvData.fold(0, (max, row) => row.length > max ? row.length : max);
-    List<String> headers = List.generate(maxCols, (i) {
-      if (_csvData.isNotEmpty && i < _csvData.first.length) {
-        return _csvData.first[i].toString();
-      }
-      return 'Column $i';
-    });
-
-    List<List<dynamic>> dataRows = _csvData.length > 1 ? _csvData.sublist(1) : [];
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) {
-        return DraggableScrollableSheet(
-          initialChildSize: 0.8,
-          minChildSize: 0.5,
-          maxChildSize: 0.95,
-          builder: (_, controller) {
-            return Container(
-              decoration: const BoxDecoration(
-                color: Color(0xFFFCFAF2),
-                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-              ),
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        'Extracted Data View',
-                        style: GoogleFonts.merriweather(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.close),
-                        onPressed: () => Navigator.pop(context),
-                      ),
-                    ],
-                  ),
-                  const Divider(),
-                  Expanded(
-                    child: SingleChildScrollView(
-                      scrollDirection: Axis.vertical,
-                      controller: controller,
-                      child: SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: DataTable(
-                          columns: headers.map((header) {
-                            return DataColumn(
-                              label: Text(
-                                header,
-                                style: const TextStyle(fontWeight: FontWeight.bold),
-                              ),
-                            );
-                          }).toList(),
-                          rows: dataRows.map((row) {
-                            return DataRow(
-                              cells: List.generate(maxCols, (index) {
-                                String cellData = '';
-                                if (index < row.length) {
-                                  cellData = row[index].toString();
-                                }
-                                return DataCell(Text(cellData));
-                              }),
-                            );
-                          }).toList(),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Future<void> _downloadCSV() async {
-    if (_csvData.isEmpty) return;
-    try {
-      final csvString = csvlib.csv.encode(_csvData);
-      await downloadFileWeb(csvString, 'extracted_ledger_${DateTime.now().millisecondsSinceEpoch}.csv');
-    } catch (e) {
-      _showError('Error downloading file: $e');
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -528,7 +437,7 @@ class _HomePageState extends State<HomePage> {
               ),
             ),
 
-          if (_csvData.isNotEmpty && !_isLoading)
+          if (_scanResults.isNotEmpty && !_isLoading)
             Positioned(
               bottom: buttonAreaHeight + 12,
               left: 20,
@@ -578,13 +487,13 @@ class _HomePageState extends State<HomePage> {
             children: [
               IconButton(
                 icon: const Icon(Icons.remove_red_eye, color: Color(0xFFE86B24)),
-                tooltip: 'View CSV Table',
-                onPressed: _showCSVResultBottomSheet,
+                tooltip: 'View & Edit Data',
+                onPressed: _openEditableResults,
               ),
               IconButton(
                 icon: const Icon(Icons.download, color: Color(0xFFE86B24)),
-                tooltip: 'Download CSV File',
-                onPressed: _downloadCSV,
+                tooltip: 'Download CSV',
+                onPressed: _downloadResults,
               ),
             ],
           ),
