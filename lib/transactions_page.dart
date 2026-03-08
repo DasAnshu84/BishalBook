@@ -1,4 +1,7 @@
 import 'dart:convert';
+import 'dart:io';
+import 'package:path_provider/path_provider.dart';
+import 'package:open_file/open_file.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:http/http.dart' as http;
@@ -19,6 +22,9 @@ class _TransactionsPageState extends State<TransactionsPage> {
   bool _isLoading = false;
   bool _isLoadingMore = false;
   bool _hasMore = true;
+  bool _isGeneratingPdf = false;
+  final TextEditingController _clientSearchController = TextEditingController();
+
 
   // Pagination
   static const int _pageSize = 10;
@@ -111,6 +117,56 @@ class _TransactionsPageState extends State<TransactionsPage> {
     }
   }
 
+  Future<void> _generateAndOpenPdf() async {
+    setState(() => _isGeneratingPdf = true);
+
+    try {
+      // 1. Grab current filters
+      final params = <String, String>{};
+      if (_selectedClientId != null && _selectedClientId!.isNotEmpty) {
+        params['client_id'] = _selectedClientId!;
+      }
+      if (_startDate != null) params['start_date'] = _fmtDate(_startDate!);
+      if (_endDate != null) params['end_date'] = _fmtDate(_endDate!);
+
+      // 2. Build the URI
+      final uri = Uri.parse(AppConstants.transactionsReportEndpoint)
+          .replace(queryParameters: params);
+
+      // Note: If testing on Android emulator, ensure URL is 10.0.2.2
+      final targetUri = Uri.parse(
+          uri.toString().replaceAll('localhost', '10.0.2.2'));
+
+      // 3. Make the API request
+      final resp = await http.get(targetUri);
+
+      if (resp.statusCode == 200) {
+        // 4. Get the temporary directory of the device
+        final dir = await getTemporaryDirectory();
+        
+        // 5. Create a temporary file path
+        final filePath = '${dir.path}/transaction_report_${DateTime.now().millisecondsSinceEpoch}.pdf';
+        final file = File(filePath);
+
+        // 6. Write the raw PDF bytes from the server into the file
+        await file.writeAsBytes(resp.bodyBytes);
+
+        // 7. Trigger the native OS to open the file using its default PDF viewer
+        final result = await OpenFile.open(file.path);
+        
+        if (result.type != ResultType.done && mounted) {
+          _snack('Could not open PDF. Make sure you have a PDF viewer installed.');
+        }
+      } else {
+        _snack('Failed to generate PDF (${resp.statusCode})');
+      }
+    } catch (e) {
+      if (mounted) _snack('Error downloading PDF: $e');
+    } finally {
+      if (mounted) setState(() => _isGeneratingPdf = false);
+    }
+  }
+
   void _applyFilters() {
     _fetchTransactions(reset: true);
     setState(() => _filtersExpanded = false);
@@ -122,6 +178,7 @@ class _TransactionsPageState extends State<TransactionsPage> {
       _startDate = null;
       _endDate = null;
     });
+    _clientSearchController.clear();
     _fetchTransactions(reset: true);
   }
 
@@ -233,6 +290,29 @@ class _TransactionsPageState extends State<TransactionsPage> {
           ],
         ),
         actions: [
+          // Show a spinner if generating, otherwise show the PDF button
+          if (_isGeneratingPdf)
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16.0),
+              child: Center(
+                child: SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Color(0xFFE86B24),
+                  ),
+                ),
+              ),
+            )
+          else
+            IconButton(
+              icon: const Icon(Icons.picture_as_pdf, color: Color(0xFFE86B24)),
+              tooltip: 'Generate PDF Report',
+              onPressed: _generateAndOpenPdf,
+            ),
+
+          // Existing Filter Button
           IconButton(
             icon: Icon(
               _filtersExpanded
@@ -293,7 +373,9 @@ class _TransactionsPageState extends State<TransactionsPage> {
   // ─── Filter panel ───────────────────────────────────────────────
 
   Widget _buildFilterPanel() {
-    return Container(
+    return Center( // <--- 1. Wrap the whole thing in a Center widget
+      child: Container(
+      constraints: const BoxConstraints(maxWidth: 600),
       margin: const EdgeInsets.fromLTRB(16, 4, 16, 8),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -328,49 +410,57 @@ class _TransactionsPageState extends State<TransactionsPage> {
 
           const SizedBox(height: 14),
 
-          // Client dropdown
-          Text('Client',
+        // Client dropdown
+        Text('Client',
               style: GoogleFonts.inter(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
                   color: Colors.grey.shade600)),
           const SizedBox(height: 8),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
+            width: double.infinity,
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(color: Colors.grey.shade300),
             ),
-            child: DropdownButtonHideUnderline(
-              child: DropdownButton<String>(
-                value: _selectedClientId,
-                isExpanded: true,
-                hint: Text('All Clients',
-                    style: GoogleFonts.inter(
-                        fontSize: 14, color: Colors.grey.shade500)),
-                icon: const Icon(Icons.arrow_drop_down,
-                    color: Color(0xFFE86B24)),
-                items: [
-                  DropdownMenuItem<String>(
-                    value: null,
-                    child: Text('All Clients',
-                        style: GoogleFonts.inter(fontSize: 14)),
-                  ),
-                  ..._clients.map((c) {
-                    return DropdownMenuItem<String>(
-                      value: c['id'],
-                      child: Text(
-                        '${c['client_name']} (${c['client_code']})',
-                        style: GoogleFonts.inter(fontSize: 14),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    );
-                  }),
-                ],
-                onChanged: (val) =>
-                    setState(() => _selectedClientId = val),
+            child: DropdownMenu<String?>(
+              controller: _clientSearchController,
+              initialSelection: _selectedClientId,
+              expandedInsets: EdgeInsets.zero, // Forces it to take the full width
+              enableFilter: true, // Filters the list as you type!
+              requestFocusOnTap: true, // Opens keyboard on tap
+              hintText: 'Search or select client...',
+              menuHeight: 250, // Prevents the menu from covering the whole screen
+              menuStyle: MenuStyle(
+                backgroundColor: WidgetStateProperty.all(Colors.white), // Sets base color
+                surfaceTintColor: WidgetStateProperty.all(Colors.transparent), // Removes the red/pink tint
+                elevation: WidgetStateProperty.all(4), // Gives it a nice standard shadow
               ),
+              textStyle: GoogleFonts.inter(fontSize: 14, color: const Color(0xFF333333)),
+              inputDecorationTheme: const InputDecorationTheme(
+                border: InputBorder.none, // Hide default text field border
+                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                isDense: true,
+              ),
+              trailingIcon: const Icon(Icons.search, color: Color(0xFFE86B24)),
+              selectedTrailingIcon: const Icon(Icons.arrow_drop_up, color: Color(0xFFE86B24)),
+              onSelected: (String? val) {
+                setState(() => _selectedClientId = val);
+                FocusScope.of(context).unfocus(); // Hides keyboard after selection
+              },
+              dropdownMenuEntries: [
+                DropdownMenuEntry<String?>(
+                  value: null,
+                  label: 'All Clients',
+                ),
+                ..._clients.map((c) {
+                  return DropdownMenuEntry<String?>(
+                    value: c['id'],
+                    label: '${c['client_name']} (${c['client_code']})',
+                  );
+                }),
+              ],
             ),
           ),
 
@@ -420,6 +510,7 @@ class _TransactionsPageState extends State<TransactionsPage> {
             ],
           ),
         ],
+      ),
       ),
     );
   }

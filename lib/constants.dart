@@ -8,4 +8,6 @@ class AppConstants {
   static String get fullClientsUrl => '$apiBaseUrl$clientsEndpoint';
   static String get transactionsEndpoint => '/api/transactions/';
   static String get fullTransactionsUrl => '$apiBaseUrl$transactionsEndpoint';
+  static String get bulkTransactionsUrl => '${fullTransactionsUrl}bulk';
+  static String get transactionsReportEndpoint => '${fullTransactionsUrl}report/pdf';
 }

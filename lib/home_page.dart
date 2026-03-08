@@ -161,13 +161,109 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  void _openEditableResults() async {
+ void _openEditableResults() async {
     if (_scanResults.isEmpty) return;
+    
+    // 1. Wait for the user to edit and tap "SAVE CHANGES"
     final edited = await showEditableScanResults(context, _scanResults);
-    if (edited != null && mounted) {
-      setState(() => _scanResults = edited);
-      _showError('Changes saved locally');
+    
+    // If they dismissed the sheet without saving, do nothing
+    if (edited == null || !mounted) return;
+
+    // 2. Immediately save edits locally and start loading
+    // This ensures if the API fails, their edits aren't lost
+    setState(() {
+      _scanResults = edited;
+      _isLoading = true;
+    });
+
+    try {
+      // 3. Make the API call
+      // Note: If testing on Android emulator, use 'http://10.0.2.2:8000/api/transactions/bulk'
+      // If testing on iOS simulator, use 'http://localhost:8000/api/transactions/bulk'
+      final response = await http.post(
+        Uri.parse(AppConstants.bulkTransactionsUrl),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode(edited), 
+      );
+
+      if (!mounted) return;
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        // SUCCESS: Clear the results and notify user
+        setState(() => _scanResults = []);
+        _showError('Transactions saved successfully!');
+        
+      } else if (response.statusCode == 400) {
+        // FAILURE: Missing Clients (or other validation error)
+        final respBody = json.decode(response.body);
+        final errorMessage = respBody['detail'] ?? 'Invalid request data.';
+        
+        // Show the dialog allowing them to go fix it
+        _showMissingClientsDialog(errorMessage);
+        
+      } else {
+        _showError('Failed to save. Status: ${response.statusCode}');
+      }
+    } catch (e) {
+      if (mounted) _showError('Error saving changes: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
+  }
+
+  void _showMissingClientsDialog(String errorMessage) {
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFFFCFAF2),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+          title: Row(
+            children: [
+              const Icon(Icons.warning_amber_rounded, color: Colors.redAccent),
+              const SizedBox(width: 10),
+              Text(
+                'Missing Clients',
+                style: GoogleFonts.merriweather(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          content: Text(
+            errorMessage, // Prints: "The following client codes do not exist..."
+            style: GoogleFonts.inter(fontSize: 14, color: const Color(0xFF333333)),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text('Cancel', style: GoogleFonts.inter(color: Colors.grey.shade600)),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(ctx); // Close the dialog
+                
+                // Navigate to Clients page
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const ClientsPage()),
+                );
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFE86B24),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              child: Text('Create Clients', style: GoogleFonts.inter(fontWeight: FontWeight.bold)),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   Future<void> _downloadResults() async {
