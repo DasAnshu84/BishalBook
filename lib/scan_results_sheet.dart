@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'web_download.dart';
+import 'date_picker_field.dart';
 
 /// Calculates the sum of a breakdown expression like "100 + 200 + 50".
 double calcBreakdownTotal(String breakdown) {
@@ -65,6 +66,8 @@ Future<List<Map<String, dynamic>>?> showEditableScanResults(
     };
   }).toList();
 
+  DateTime selectedDate = DateTime.now();
+
   return showModalBottomSheet<List<Map<String, dynamic>>>(
     context: context,
     isScrollControlled: true,
@@ -123,7 +126,19 @@ Future<List<Map<String, dynamic>>?> showEditableScanResults(
                       ),
                     ),
                     Divider(color: Colors.grey.shade300),
-
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                      child: DatePickerField(
+                        selectedDate: selectedDate,
+                        enabled: true,
+                        dialogContext: ctx,
+                        onDateSelected: (date) {
+                          setSheetState(() {
+                            selectedDate = date;
+                          });
+                        },
+                      ),
+                    ),
                     // ── Column headers ──
                     Padding(
                       padding: const EdgeInsets.symmetric(
@@ -283,6 +298,13 @@ Future<List<Map<String, dynamic>>?> showEditableScanResults(
                             height: 50,
                             child: ElevatedButton.icon(
                               onPressed: () {
+                                final formattedDate =
+                                  "${selectedDate.year}-${selectedDate.month.toString().padLeft(2,'0')}-${selectedDate.day.toString().padLeft(2,'0')}";
+
+                                for (final item in editableData) {
+                                  item['date'] = formattedDate;
+                                }
+
                                 Navigator.pop(ctx, editableData);
                               },
                               icon: const Icon(Icons.save_alt, size: 20),
