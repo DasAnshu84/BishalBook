@@ -17,7 +17,14 @@ class _ClientsPageState extends State<ClientsPage>
   List<Map<String, dynamic>> _clients = [];
   bool _isLoading = false;
   bool _isActionInProgress = false;
+  final ScrollController _scrollController = ScrollController();
   late AnimationController _fabAnimController;
+
+
+  final List<String> _alphabet = List.generate(
+    26,
+    (i) => String.fromCharCode(65 + i),
+  );
 
   @override
   void initState() {
@@ -48,6 +55,8 @@ class _ClientsPageState extends State<ClientsPage>
         final List<dynamic> data = json.decode(response.body);
         setState(() {
           _clients = data.cast<Map<String, dynamic>>();
+          _clients.sort((a, b) =>
+              (a['client_name'] ?? '').compareTo(b['client_name'] ?? ''));
         });
       } else {
         _showSnack('Failed to load clients (${response.statusCode})');
@@ -135,6 +144,20 @@ class _ClientsPageState extends State<ClientsPage>
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       ),
     );
+  }
+
+  // ─── Scroll ─────────────────────────────────────────────────────
+  void _scrollToLetter(String letter) {
+    final index = _clients.indexWhere((c) =>
+        (c['client_name'] ?? '').toUpperCase().startsWith(letter));
+
+    if (index != -1) {
+      _scrollController.animateTo(
+        index * 92.0,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+      );
+    }
   }
 
   // ─── Dialogs ────────────────────────────────────────────────────
@@ -604,10 +627,52 @@ class _ClientsPageState extends State<ClientsPage>
               : RefreshIndicator(
                   color: const Color(0xFFE86B24),
                   onRefresh: _fetchClients,
-                  child: ListView.builder(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
-                    itemCount: _clients.length,
-                    itemBuilder: (_, i) => _buildClientCard(_clients[i], i),
+                  child: Stack(
+                    children: [
+                      ListView.builder(
+                        controller: _scrollController,
+                        padding: const EdgeInsets.fromLTRB(16, 8, 36, 100),
+                        itemCount: _clients.length,
+                        itemBuilder: (_, i) => _buildClientCard(_clients[i], i),
+                      ),
+
+Positioned(
+  right: 4,
+  top: 20,
+  bottom: 20,
+  width: 30, // Explicit width makes the "hit area" easier to grab
+  child: GestureDetector(
+    behavior: HitTestBehavior.opaque, // Ensures the gaps between letters are clickable
+    onVerticalDragUpdate: (details) {
+      // Calculate which letter we are over based on the total height
+      double scrollPercent = details.localPosition.dy / (MediaQuery.of(context).size.height - 40);
+      int index = (scrollPercent * _alphabet.length).floor().clamp(0, _alphabet.length - 1);
+      _scrollToLetter(_alphabet[index]);
+    },
+    onTapDown: (details) {
+      double scrollPercent = details.localPosition.dy / (MediaQuery.of(context).size.height - 40);
+      int index = (scrollPercent * _alphabet.length).floor().clamp(0, _alphabet.length - 1);
+      _scrollToLetter(_alphabet[index]);
+    },
+    child: Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: _alphabet.map((letter) {
+        return Expanded( // Expanded ensures letters are spaced evenly across the height
+          child: Center(
+            child: Text(
+              letter,
+              style: GoogleFonts.inter(
+                fontSize: 10,
+                fontWeight: FontWeight.bold,
+                color: Colors.grey.shade600,
+              ),
+            ),
+          ),
+        );
+      }).toList(),
+    ),
+  ),
+)                    ],
                   ),
                 ),
     );
