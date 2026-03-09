@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'web_download.dart';
 import 'date_picker_field.dart';
+import 'confirm_delete_dialog.dart';
 
 /// Calculates the sum of a breakdown expression like "100 + 200 + 50".
 double calcBreakdownTotal(String breakdown) {
@@ -181,6 +182,7 @@ Future<List<Map<String, dynamic>>?> showEditableScanResults(
                     // ── Editable list ──
                     Expanded(
                       child: ListView.builder(
+                        physics: const BouncingScrollPhysics(),
                         controller: controller,
                         padding:
                             const EdgeInsets.symmetric(horizontal: 20),
@@ -188,6 +190,7 @@ Future<List<Map<String, dynamic>>?> showEditableScanResults(
                         itemBuilder: (_, i) {
                           final item = editableData[i];
                           return Container(
+                            key: ValueKey('${item['unique_id']}_$i'),
                             margin: const EdgeInsets.only(bottom: 8),
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
@@ -250,10 +253,62 @@ Future<List<Map<String, dynamic>>?> showEditableScanResults(
                                     ),
                                   ),
                                 ),
+                                const SizedBox(width: 6),
+                                // Delete button
+                                IconButton(
+                                  icon: const Icon(Icons.delete_outline, color: Color(0xFFE86B24)),
+                                  onPressed: () async {
+                                    final confirm = await showDeleteConfirmDialog(
+                                      ctx,
+                                      title: "Delete Row",
+                                      message: "Are you sure you want to delete this row?",
+                                    );
+
+                                    if (confirm == true && i < editableData.length) {
+                                      setSheetState(() {
+                                        editableData.removeAt(i);
+                                      });
+                                    }
+                                  },
+                                ),
                               ],
                             ),
                           );
                         },
+                      ),
+                    ),
+                    
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                      child: SizedBox(
+                        width: double.infinity,
+                        height: 44,
+                        child: OutlinedButton.icon(
+                          onPressed: () {
+                            setSheetState(() {
+                              editableData.add({
+                                'unique_id': '',
+                                'combined_breakdown': '',
+                                'total_amount': 0.0,
+                              });
+                            });
+                          },
+                          icon: const Icon(Icons.add, size: 18),
+                          label: Text(
+                            "ADD ROW",
+                            style: GoogleFonts.inter(
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 1,
+                            ),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: const Color(0xFFE86B24),
+                            side: const BorderSide(color: Color(0xFFE86B24)),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                        ),
                       ),
                     ),
 
