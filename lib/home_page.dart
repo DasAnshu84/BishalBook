@@ -10,6 +10,8 @@ import 'transactions_page.dart';
 import 'scan_results_sheet.dart';
 import 'web_download.dart';
 import 'date_picker_field.dart';
+import 'searchable_dropdown.dart';
+import 'confirm_delete_dialog.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -266,7 +268,7 @@ class _HomePageState extends State<HomePage> {
       },
     );
   }
-
+  // This is removable
   Future<void> _downloadResults() async {
     await downloadScanResults(_scanResults, _showError);
   }
@@ -342,43 +344,21 @@ class _HomePageState extends State<HomePage> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Client',
-                      style: GoogleFonts.inter(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.grey.shade600)),
-                  const SizedBox(height: 6),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.grey.shade300),
+                  SearchableDropdown<Map<String, dynamic>>(
+                    items: clients,
+                    selectedItem: clients.firstWhere(
+                      (c) => c['id'] == selectedClientId,
+                      orElse: () => clients.first,
                     ),
-                    child: DropdownButtonHideUnderline(
-                      child: DropdownButton<String>(
-                        value: selectedClientId,
-                        isExpanded: true,
-                        icon: const Icon(Icons.arrow_drop_down,
-                            color: Color(0xFFE86B24)),
-                        items: clients.map((c) {
-                          return DropdownMenuItem<String>(
-                            value: c['id'],
-                            child: Text(
-                              '${c['client_name']} (${c['client_code']})',
-                              style: GoogleFonts.inter(fontSize: 14),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          );
-                        }).toList(),
-                        onChanged: submitting
-                            ? null
-                            : (val) {
-                                setDialogState(
-                                    () => selectedClientId = val);
-                              },
-                      ),
-                    ),
+                    label: "Client",
+                    hint: "Search client...",
+                    enabled: !submitting,
+                    itemAsString: (c) => "${c['client_name']} (${c['client_code']})",
+                    onChanged: (val) {
+                      setDialogState(() {
+                        selectedClientId = val?['id'];
+                      });
+                    },
                   ),
                   const SizedBox(height: 16),
                   Text('Amount',
@@ -597,16 +577,37 @@ class _HomePageState extends State<HomePage> {
                 tooltip: 'View & Edit Data',
                 onPressed: _openEditableResults,
               ),
+              // IconButton(
+              //   icon: const Icon(Icons.download, color: Color(0xFFE86B24)),
+              //   tooltip: 'Download CSV',
+              //   onPressed: _downloadResults,
+              // ),
+              // Replaced download button with close button
               IconButton(
-                icon: const Icon(Icons.download, color: Color(0xFFE86B24)),
-                tooltip: 'Download CSV',
-                onPressed: _downloadResults,
+                icon: const Icon(Icons.close, color: Colors.redAccent),
+                tooltip: 'Discard Results',
+                onPressed: _confirmAndDiscardResults,
               ),
             ],
           ),
         ],
       ),
     );
+  }
+
+  Future<void> _confirmAndDiscardResults() async {
+    final shouldDiscard = await showDeleteConfirmDialog(
+      context,
+      title: 'Discard Results',
+      message: 'Are you sure you want to discard the scanned results? This action cannot be undone.',
+    );
+
+    // If the user tapped 'DELETE' (returning true), clear the results
+    if (shouldDiscard == true && mounted) {
+      setState(() {
+        _scanResults = [];
+      });
+    }
   }
 
   Widget _buildHeader() {
