@@ -9,6 +9,7 @@ import 'clients_page.dart';
 import 'transactions_page.dart';
 import 'scan_results_sheet.dart';
 import 'web_download.dart';
+import 'date_picker_field.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -302,6 +303,7 @@ class _HomePageState extends State<HomePage> {
 
     String? selectedClientId = clients.first['id'];
     final amountCtrl = TextEditingController();
+    DateTime selectedDate = DateTime.now();
     bool submitting = false;
 
     showDialog(
@@ -413,6 +415,14 @@ class _HomePageState extends State<HomePage> {
                       ),
                     ),
                   ),
+                  const SizedBox(height: 16),
+                  DatePickerField(
+                    selectedDate: selectedDate,
+                    enabled: !submitting,
+                    onDateSelected: (date) => setDialogState(() => selectedDate = date),
+                    dialogContext: ctx,
+                  )
+                  
                 ],
               ),
               actions: [
@@ -446,6 +456,7 @@ class _HomePageState extends State<HomePage> {
                               body: json.encode({
                                 'client_id': selectedClientId,
                                 'transaction_amount': amount,
+                                "date":"${selectedDate.year}-${selectedDate.month.toString().padLeft(2,'0')}-${selectedDate.day.toString().padLeft(2,'0')}"
                               }),
                             );
                             if (resp.statusCode == 200 ||
