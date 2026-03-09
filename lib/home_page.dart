@@ -12,6 +12,8 @@ import 'web_download.dart';
 import 'date_picker_field.dart';
 import 'searchable_dropdown.dart';
 import 'confirm_delete_dialog.dart';
+import 'package:crypto/crypto.dart';
+
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -125,6 +127,10 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  String generateIdempotencyKey(Uint8List imageBytes) {
+   return sha256.convert(imageBytes).toString();
+  }
+
   Future<void> _uploadAndProcessDocument(Uint8List imageBytes, String fileName) async {
     try {
       final request = http.MultipartRequest(
@@ -133,7 +139,7 @@ class _HomePageState extends State<HomePage> {
       );
 
       request.headers.addAll({
-        'Idempotency-Key': 'request-${DateTime.now().millisecondsSinceEpoch}',
+        'Idempotency-Key': generateIdempotencyKey(imageBytes),
       });
 
       request.files.add(
